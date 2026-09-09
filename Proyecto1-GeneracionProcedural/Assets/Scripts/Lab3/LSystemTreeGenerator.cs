@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Renombramos la estructura para evitar el error con ParallelGrammarGenerator
 [System.Serializable]
 public struct TreeLSystemRule
 {
@@ -29,7 +28,6 @@ public class LSystemTreeGenerator : MonoBehaviour
     [Range(0.5f, 1f)] public float lengthReduction = 0.8f;
     [Range(0.5f, 1f)] public float widthReduction = 0.7f;
 
-    // Usamos la nueva estructura independiente
     public List<TreeLSystemRule> rules = new List<TreeLSystemRule>();
 
     private List<GameObject> spawnedTrees = new List<GameObject>();
@@ -78,6 +76,7 @@ public class LSystemTreeGenerator : MonoBehaviour
             GameObject newTree = new GameObject("LSystemTree_" + i);
             newTree.transform.position = spawnPosition;
             newTree.transform.SetParent(treesContainer);
+            // Rotación base aleatoria en el eje Y para variedad en el bosque
             newTree.transform.rotation = Quaternion.Euler(0, Random.Range(0f, 360f), 0);
 
             DrawTree(lSystemString, newTree.transform);
@@ -135,19 +134,20 @@ public class LSystemTreeGenerator : MonoBehaviour
                     break;
 
                 case '+':
-                    currentRotation *= Quaternion.Euler(angle, Random.Range(-10f, 10f), 0);
+                    // Rotación 3D real: usa ejes locales combinados con un giro aleatorio en Corona (Roll)
+                    currentRotation = currentRotation * Quaternion.Euler(angle, Random.Range(-20f, 20f), Random.Range(-40f, 40f));
                     break;
 
                 case '-':
-                    currentRotation *= Quaternion.Euler(-angle, Random.Range(-10f, 10f), 0);
+                    currentRotation = currentRotation * Quaternion.Euler(-angle, Random.Range(-20f, 20f), Random.Range(-40f, 40f));
                     break;
 
                 case '\\':
-                    currentRotation *= Quaternion.Euler(0, angle, 0);
+                    currentRotation = currentRotation * Quaternion.Euler(0, 0, angle);
                     break;
 
                 case '/':
-                    currentRotation *= Quaternion.Euler(0, -angle, 0);
+                    currentRotation = currentRotation * Quaternion.Euler(0, 0, -angle);
                     break;
 
                 case '[':
