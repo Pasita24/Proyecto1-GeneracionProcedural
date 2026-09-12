@@ -20,10 +20,10 @@ public class TerrainGenerator : MonoBehaviour
     }
 
     [Tooltip("Método utilizado para generar las alturas del terreno.")]
-    [SerializeField] private GenerationMethod generationMethod = GenerationMethod.RandomNoise;
+    [SerializeField] public GenerationMethod generationMethod = GenerationMethod.RandomNoise;
 
     [Tooltip("Regenera automáticamente el terreno cada vez que se modifica un parámetro.")]
-    [SerializeField] private bool autoUpdate = true;
+    [SerializeField] public bool autoUpdate = true;
 
     [Tooltip("Tamaño físico del terreno sobre el eje X. No modifica la resolución del heightmap.")]
     [Min(1f)]
@@ -39,7 +39,7 @@ public class TerrainGenerator : MonoBehaviour
     private const float TERRAIN_HEIGHT = 20f;
 
     [Tooltip("Semilla utilizada por el generador pseudoaleatorio. Los mismos parámetros y la misma semilla producen el mismo resultado.")]
-    [SerializeField] private int seed = 12345;
+    [SerializeField] public int seed = 12345;
 
     [Tooltip("Método utilizado para combinar los valores de los puntos de control en Value Noise.")]
     [SerializeField] private HeightmapGenerator.InterpolationMode valueNoiseInterpolation =
@@ -73,20 +73,20 @@ public class TerrainGenerator : MonoBehaviour
 
     [Tooltip("Altura normalizada bajo la cual el terreno utiliza el color de zonas bajas.")]
     [Range(0f, 1f)]
-    [SerializeField] private float lowThreshold = 0.35f;
+    [SerializeField] public float lowThreshold = 0.35f;
 
     [Tooltip("Altura normalizada sobre la cual el terreno utiliza el color de zonas altas.")]
     [Range(0f, 1f)]
-    [SerializeField] private float highThreshold = 0.7f;
+    [SerializeField] public float highThreshold = 0.7f;
 
     [Tooltip("Color utilizado para representar las zonas de menor altura.")]
-    [SerializeField] private Color lowColor = new Color(0.25f, 0.55f, 0.2f);
+    [SerializeField] public Color lowColor = new Color(0.25f, 0.55f, 0.2f);
 
     [Tooltip("Color utilizado para representar las zonas de altura intermedia.")]
-    [SerializeField] private Color middleColor = new Color(0.45f, 0.3f, 0.15f);
+    [SerializeField] public Color middleColor = new Color(0.45f, 0.3f, 0.15f);
 
     [Tooltip("Color utilizado para representar las zonas de mayor altura.")]
-    [SerializeField] private Color highColor = new Color(0.8f, 0.8f, 0.8f);
+    [SerializeField] public Color highColor = new Color(0.8f, 0.8f, 0.8f);
 
     [HideInInspector]
     [SerializeField] private Terrain generatedTerrain;

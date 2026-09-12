@@ -10,11 +10,11 @@ Material:
   m_Name: Verde
   m_Shader: {fileID: -6465566751694194690, guid: acebc1881972c8642a9d10dfe0f5b914, type: 3}
   m_Parent: {fileID: -876546973899608171, guid: acebc1881972c8642a9d10dfe0f5b914, type: 3}
-  m_ModifiedSerializedProperties: 0
+  m_ModifiedSerializedProperties: 4
   m_ValidKeywords: []
   m_InvalidKeywords: []
   m_LightmapFlags: 4
-  m_EnableInstancingVariants: 0
+  m_EnableInstancingVariants: 1
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: -1
   stringTagMap: {}

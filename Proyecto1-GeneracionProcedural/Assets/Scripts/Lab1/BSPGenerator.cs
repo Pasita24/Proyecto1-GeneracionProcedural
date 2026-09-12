@@ -108,26 +108,46 @@ public class BSPGenerator : MonoBehaviour
         {
             if (leaf.leftChild == null && leaf.rightChild == null)
             {
-                float randomX = 0, randomZ = 0, heightY = 0;
                 bool validSpot = false;
+                Vector3 spawnPosition = Vector3.zero;
 
-                // Intentar hasta 10 veces encontrar un punto válido en la parcela
-                for (int attempt = 0; attempt < 10; attempt++)
+                if (context == GenerationContext.Mountain)
                 {
-                    randomX = leaf.x + Random.Range(2f, leaf.width - 2f);
-                    randomZ = leaf.y + Random.Range(2f, leaf.length - 2f);
-                    heightY = targetTerrain.SampleHeight(new Vector3(randomX, 0, randomZ)) + targetTerrain.transform.position.y;
+                    float highestY = float.MinValue;
 
-                    if (context == GenerationContext.Valley || (context == GenerationContext.Mountain && heightY >= mountainMinHeight))
+                    // Muestrea 20 puntos en el lote para encontrar la cima local
+                    for (int attempt = 0; attempt < 20; attempt++)
                     {
-                        validSpot = true;
-                        break;
+                        float rx = leaf.x + Random.Range(2f, leaf.width - 2f);
+                        float rz = leaf.y + Random.Range(2f, leaf.length - 2f);
+                        float hy = targetTerrain.SampleHeight(new Vector3(rx, 0, rz)) + targetTerrain.transform.position.y;
+
+                        // Si este punto es más alto que el anterior evaluado, lo guarda
+                        if (hy > highestY)
+                        {
+                            highestY = hy;
+
+                            // Valida el punto solo si además supera la altura mínima exigida
+                            if (highestY >= mountainMinHeight)
+                            {
+                                validSpot = true;
+                                spawnPosition = new Vector3(rx, highestY, rz);
+                            }
+                        }
                     }
+                }
+                else // Lógica original para el contexto Valley
+                {
+                    float randomX = leaf.x + Random.Range(2f, leaf.width - 2f);
+                    float randomZ = leaf.y + Random.Range(2f, leaf.length - 2f);
+                    float heightY = targetTerrain.SampleHeight(new Vector3(randomX, 0, randomZ)) + targetTerrain.transform.position.y;
+
+                    validSpot = true;
+                    spawnPosition = new Vector3(randomX, heightY, randomZ);
                 }
 
                 if (!validSpot) continue;
 
-                Vector3 spawnPosition = new Vector3(randomX, heightY, randomZ);
                 GameObject prefabToSpawn = housePrefabs[Random.Range(0, housePrefabs.Length)];
                 GameObject newHouse = Instantiate(prefabToSpawn, spawnPosition, Quaternion.Euler(0, Random.Range(0, 360), 0));
 
