@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// Clase que representa cada subdivisión del terreno
 public class BSPLeaf
 {
     public int x, y, width, length;
@@ -15,22 +14,17 @@ public class BSPLeaf
         this.length = length;
     }
 
-    // Intenta dividir la hoja en dos
     public bool Split(int minLeafSize)
     {
-        // Si ya está dividida, cancela
         if (leftChild != null || rightChild != null) return false;
 
-        // Determina la dirección del corte (horizontal o vertical)
         bool splitHorizontal = Random.value > 0.5f;
         if (width > length && (float)width / length >= 1.25f) splitHorizontal = false;
         else if (length > width && (float)length / width >= 1.25f) splitHorizontal = true;
 
-        // Determina el tamaño máximo que puede tener el corte
         int max = (splitHorizontal ? length : width) - minLeafSize;
-        if (max <= minLeafSize) return false; // El área es muy pequeña para dividirla
+        if (max <= minLeafSize) return false;
 
-        // Realiza el corte
         int split = Random.Range(minLeafSize, max);
 
         if (splitHorizontal)
@@ -49,6 +43,12 @@ public class BSPLeaf
 
 public class BSPGenerator : MonoBehaviour
 {
+    public enum GenerationContext { Valley, Mountain }
+
+    [Header("Contexto de Generación")]
+    public GenerationContext context = GenerationContext.Valley;
+    public float mountainMinHeight = 10f;
+
     [Header("Configuración BSP")]
     public int mapWidth = 100;
     public int mapLength = 100;
@@ -56,8 +56,8 @@ public class BSPGenerator : MonoBehaviour
     public int maxLeafSize = 40;
 
     [Header("Referencias")]
-    public GameObject[] housePrefabs; // Asigna aquí tus modelos 3D de casas
-    public Terrain targetTerrain;     // El terreno generado por el Perlin Noise
+    public GameObject[] housePrefabs;
+    public Terrain targetTerrain;
 
     private List<BSPLeaf> leaves = new List<BSPLeaf>();
     private List<GameObject> spawnedBuildings = new List<GameObject>();
@@ -65,12 +65,9 @@ public class BSPGenerator : MonoBehaviour
     public void GenerateVillage()
     {
         ClearVillage();
-
-        // 1. Iniciar la raíz del BSP
         BSPLeaf root = new BSPLeaf(0, 0, mapWidth, mapLength);
         leaves.Add(root);
 
-        // 2. Ejecutar las divisiones recursivamente
         bool didSplit = true;
         while (didSplit)
         {
@@ -91,15 +88,13 @@ public class BSPGenerator : MonoBehaviour
                 }
             }
         }
-
-        // 3. Instanciar las casas en los lotes finales
         PlaceBuildings();
     }
+
     private void PlaceBuildings()
     {
         if (housePrefabs == null || housePrefabs.Length == 0 || targetTerrain == null) return;
 
-        // 1. Buscar o crear el objeto contenedor "Houses"
         Transform housesContainer = transform.Find("Houses");
         if (housesContainer == null)
         {
@@ -113,17 +108,29 @@ public class BSPGenerator : MonoBehaviour
         {
             if (leaf.leftChild == null && leaf.rightChild == null)
             {
-                float randomX = leaf.x + Random.Range(2f, leaf.width - 2f);
-                float randomZ = leaf.y + Random.Range(2f, leaf.length - 2f);
+                float randomX = 0, randomZ = 0, heightY = 0;
+                bool validSpot = false;
 
-                float heightY = targetTerrain.SampleHeight(new Vector3(randomX, 0, randomZ)) + targetTerrain.transform.position.y;
+                // Intentar hasta 10 veces encontrar un punto válido en la parcela
+                for (int attempt = 0; attempt < 10; attempt++)
+                {
+                    randomX = leaf.x + Random.Range(2f, leaf.width - 2f);
+                    randomZ = leaf.y + Random.Range(2f, leaf.length - 2f);
+                    heightY = targetTerrain.SampleHeight(new Vector3(randomX, 0, randomZ)) + targetTerrain.transform.position.y;
+
+                    if (context == GenerationContext.Valley || (context == GenerationContext.Mountain && heightY >= mountainMinHeight))
+                    {
+                        validSpot = true;
+                        break;
+                    }
+                }
+
+                if (!validSpot) continue;
 
                 Vector3 spawnPosition = new Vector3(randomX, heightY, randomZ);
-
                 GameObject prefabToSpawn = housePrefabs[Random.Range(0, housePrefabs.Length)];
                 GameObject newHouse = Instantiate(prefabToSpawn, spawnPosition, Quaternion.Euler(0, Random.Range(0, 360), 0));
 
-                // 2. Asignar la nueva casa como hija del contenedor "Houses"
                 newHouse.transform.SetParent(housesContainer);
                 spawnedBuildings.Add(newHouse);
             }
@@ -134,12 +141,7 @@ public class BSPGenerator : MonoBehaviour
     {
         leaves.Clear();
         spawnedBuildings.Clear();
-
-        // 3. Eliminar el contenedor completo de una sola vez
         Transform housesContainer = transform.Find("Houses");
-        if (housesContainer != null)
-        {
-            DestroyImmediate(housesContainer.gameObject);
-        }
+        if (housesContainer != null) DestroyImmediate(housesContainer.gameObject);
     }
 }
