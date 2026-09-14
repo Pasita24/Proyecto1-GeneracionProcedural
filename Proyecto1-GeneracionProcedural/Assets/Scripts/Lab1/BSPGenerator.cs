@@ -56,7 +56,8 @@ public class BSPGenerator : MonoBehaviour
     public int maxLeafSize = 40;
 
     [Header("Referencias")]
-    public GameObject[] housePrefabs;
+    public GameObject[] valleyPrefabs;
+    public GameObject[] mountainPrefabs;
     public Terrain targetTerrain;
 
     private List<BSPLeaf> leaves = new List<BSPLeaf>();
@@ -93,7 +94,11 @@ public class BSPGenerator : MonoBehaviour
 
     private void PlaceBuildings()
     {
-        if (housePrefabs == null || housePrefabs.Length == 0 || targetTerrain == null) return;
+        // 1. Elegir la lista de prefabs según el contexto activo
+        GameObject[] activePrefabs = (context == GenerationContext.Mountain) ? mountainPrefabs : valleyPrefabs;
+
+        // 2. Validar que la lista seleccionada tenga elementos
+        if (activePrefabs == null || activePrefabs.Length == 0 || targetTerrain == null) return;
 
         Transform housesContainer = transform.Find("Houses");
         if (housesContainer == null)
@@ -148,7 +153,8 @@ public class BSPGenerator : MonoBehaviour
 
                 if (!validSpot) continue;
 
-                GameObject prefabToSpawn = housePrefabs[Random.Range(0, housePrefabs.Length)];
+                // 3. Instanciar usando la lista dinámica
+                GameObject prefabToSpawn = activePrefabs[Random.Range(0, activePrefabs.Length)];
                 GameObject newHouse = Instantiate(prefabToSpawn, spawnPosition, Quaternion.Euler(0, Random.Range(0, 360), 0));
 
                 newHouse.transform.SetParent(housesContainer);
