@@ -113,32 +113,46 @@ public class EvolutionaryStrategy : MonoBehaviour
         IReadOnlyList<PokemonData> dataset,
         PokemonTeamGenerationConfig config)
     {
-        if (dataset == null || dataset.Count == 0)
-            return null;
-
+        if (dataset == null || dataset.Count == 0) return null;
         System.Random random = new System.Random();
 
-        // TODO 1: Crear "mu" padres aleatorios.
-        // TODO 2: Evaluar padres.
-        // TODO 3: Repetir durante "generations".
-        //
-        // En cada generación:
-        // - crear lambda hijos
-        // - elegir un padre aleatorio para cada hijo
-        // - copiarlo
-        // - mutarlo
-        // - evaluarlo
-        //
-        // Después:
-        // combined = parents + offspring
-        // ordenar combined por fitness
-        // conservar solamente los mejores "mu"
+        // 1: Crear "mu" padres aleatorios y evaluarlos.
+        List<PokemonTeamCandidate> parents = CreateInitialParents(mu, dataset.Count, config, random);
+        EvaluatePopulation(parents, dataset, config);
 
-        Debug.LogWarning(
-            "[EvolutionaryStrategy] TODO: implementar Generate()."
-        );
+        // 3: Repetir durante "generations".
+        for (int gen = 0; gen < generations; gen++)
+        {
+            List<PokemonTeamCandidate> offspring = new List<PokemonTeamCandidate>();
 
-        return null;
+            // Crear lambda hijos
+            for (int i = 0; i < lambda; i++)
+            {
+                PokemonTeamCandidate parent = parents[random.Next(parents.Count)];
+                PokemonTeamCandidate child = parent.Clone();
+
+                Mutate(child, dataset.Count, random);
+                PokemonTeamFitness.Evaluate(child, dataset, config);
+
+                offspring.Add(child);
+            }
+
+            // Combinar padres e hijos (combined = parents + offspring)
+            List<PokemonTeamCandidate> combined = new List<PokemonTeamCandidate>(parents);
+            combined.AddRange(offspring);
+
+            // Ordenar por fitness (de mayor a menor)
+            combined.Sort((a, b) => b.fitness.CompareTo(a.fitness));
+
+            // Conservar solamente los mejores "mu"
+            parents.Clear();
+            for (int i = 0; i < mu && i < combined.Count; i++)
+            {
+                parents.Add(combined[i]);
+            }
+        }
+
+        return PokemonTeamFitness.SelectGeneratedContent(parents, config, random);
     }
 
     /*
@@ -169,8 +183,19 @@ public class EvolutionaryStrategy : MonoBehaviour
         PokemonTeamGenerationConfig config,
         System.Random random)
     {
-        // TODO
-        return null;
+        List<PokemonTeamCandidate> parents = new List<PokemonTeamCandidate>();
+
+        for (int i = 0; i < parentCount; i++)
+        {
+            PokemonTeamCandidate candidate = new PokemonTeamCandidate(config.teamSize);
+            for (int j = 0; j < config.teamSize; j++)
+            {
+                candidate.genes[j] = random.Next(datasetSize);
+            }
+            parents.Add(candidate);
+        }
+
+        return parents;
     }
 
     /*
@@ -206,7 +231,23 @@ public class EvolutionaryStrategy : MonoBehaviour
         int datasetSize,
         System.Random random)
     {
-        // TODO
+        bool mutated = false;
+
+        for (int i = 0; i < candidate.genes.Length; i++)
+        {
+            if (random.NextDouble() < mutationRate)
+            {
+                candidate.genes[i] = RandomDifferentPokemon(candidate.genes[i], datasetSize, random);
+                mutated = true;
+            }
+        }
+
+        // Si por azar no mutó nada, forzamos la mutación de un gen aleatorio.
+        if (!mutated && candidate.genes.Length > 0)
+        {
+            int randomIndex = random.Next(candidate.genes.Length);
+            candidate.genes[randomIndex] = RandomDifferentPokemon(candidate.genes[randomIndex], datasetSize, random);
+        }
     }
 
     /*
@@ -225,10 +266,13 @@ public class EvolutionaryStrategy : MonoBehaviour
         int datasetSize,
         System.Random random)
     {
-        // TODO
-        return current;
+        int newPokemon = current;
+        while (newPokemon == current)
+        {
+            newPokemon = random.Next(datasetSize);
+        }
+        return newPokemon;
     }
-
     private void EvaluatePopulation(
         List<PokemonTeamCandidate> population,
         IReadOnlyList<PokemonData> dataset,

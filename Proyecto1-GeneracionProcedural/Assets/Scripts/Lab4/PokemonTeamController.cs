@@ -409,4 +409,41 @@ public class PokemonTeamController : MonoBehaviour
                 $"Roles: {team.uniqueRoles}/3";
         }
     }
+    [ContextMenu("Test Generation In Console")]
+    public void TestGenerationInConsole()
+    {
+        if (loader == null)
+        {
+            Debug.LogError("Asigna el PokemonCSVLoader en el Inspector.");
+            return;
+        }
+
+        if (!loader.IsLoaded)
+            loader.Load();
+
+        PokemonTeamCandidate result = null;
+
+        if (generationMethod == TeamGenerationMethod.GeneticAlgorithm)
+        {
+            if (geneticAlgorithm != null)
+                result = geneticAlgorithm.Generate(loader.Data, config);
+        }
+        else
+        {
+            if (evolutionaryStrategy != null)
+                result = evolutionaryStrategy.Generate(loader.Data, config);
+        }
+
+        if (result != null)
+        {
+            Debug.Log($"<color=green>--- TEST RESULT ({generationMethod}) ---</color>");
+            Debug.Log($"Fitness: {result.fitness:0.00} | Power: {result.powerScore:0.00} | Diversity: {result.diversityScore:0.00} | Promedio BST: {result.averageBST}");
+
+            for (int i = 0; i < result.genes.Length; i++)
+            {
+                PokemonData p = loader.Data[result.genes[i]];
+                Debug.Log($"Slot {i + 1}: {p.name} ({p.type1}/{p.type2}) - BST: {p.bst} - OFF: {p.offense} / DEF: {p.defense}");
+            }
+        }
+    }
 }
