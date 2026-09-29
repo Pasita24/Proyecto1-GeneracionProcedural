@@ -90,6 +90,52 @@ public class GeneticAlgorithm : MonoBehaviour
     [Header("Debug")]
     [SerializeField] private bool logProgress = true;
 
+    /*
+     * ============================================================
+     * ALGORITMO GENÉTICO
+     * ============================================================
+     *
+     * PSEUDOCÓDIGO GENERAL
+     * ------------------------------------------------------------
+     * 1: create random population
+     * 2: evaluate every individual
+     *
+     * 3: repeat for N generations:
+     * 4:      sort population by fitness
+     * 5:      create empty nextPopulation
+     * 6:      copy elite individuals
+     *
+     * 7:      while nextPopulation is not full:
+     * 8:          parentA = tournament selection
+     * 9:          parentB = tournament selection
+     *
+     * 10:         if random < crossoverRate:
+     * 11:             child = crossover(parentA, parentB)
+     * 12:         else:
+     * 13:             child = copy(parentA)
+     *
+     * 14:         mutate(child)
+     * 15:         evaluate(child)
+     * 16:         add child to nextPopulation
+     *
+     * 17:     population = nextPopulation
+     *
+     * 18: select generated content from final population
+     *
+     * EJEMPLO DE UNA GENERACIÓN
+     * ------------------------------------------------------------
+     * populationSize = 4
+     *
+     * A = [25, 131, 94, 212, 135, 445] fitness 0.92
+     * B = [6, 150, 197, 376, 59, 248]   fitness 0.87
+     * C = [1, 4, 7, 25, 39, 52]         fitness 0.63
+     * D = [10, 11, 12, 13, 14, 15]      fitness 0.55
+     *
+     * elitism = 1
+     *
+     * nextPopulation empieza como [A]
+     * y luego se completa con hijos hasta volver a tener 4 individuos.
+     */
     public PokemonTeamCandidate Generate(
         IReadOnlyList<PokemonData> dataset,
         PokemonTeamGenerationConfig config)
@@ -99,18 +145,19 @@ public class GeneticAlgorithm : MonoBehaviour
 
         System.Random random = new System.Random();
 
-        // 1: Crear population
+        // 1: Crear population con CreateInitialPopulation(...)
         List<PokemonTeamCandidate> population = CreateInitialPopulation(dataset.Count, config, random);
 
-        // 2: Evaluar la población inicial
+        // 2: Evaluar la población inicial.
         EvaluatePopulation(population, dataset, config);
 
-        // 3: Repetir el ciclo evolutivo durante "generations"
+        // 3: Repetir el ciclo evolutivo durante "generations".
         for (int gen = 0; gen < generations; gen++)
         {
             // ordenar por fitness (de mayor a menor)
             population.Sort((a, b) => b.fitness.CompareTo(a.fitness));
 
+            // crear empty nextPopulation
             List<PokemonTeamCandidate> nextPopulation = new List<PokemonTeamCandidate>();
 
             // conservar elite
@@ -143,6 +190,8 @@ public class GeneticAlgorithm : MonoBehaviour
 
                 // evaluar hijos
                 PokemonTeamFitness.Evaluate(child, dataset, config);
+
+                // add child to nextPopulation
                 nextPopulation.Add(child);
             }
 
@@ -154,6 +203,34 @@ public class GeneticAlgorithm : MonoBehaviour
         return PokemonTeamFitness.SelectGeneratedContent(population, config, random);
     }
 
+    /*
+     * ============================================================
+     * CREAR POBLACIÓN INICIAL
+     * ============================================================
+     *
+     * populationSize = 50
+     * teamSize = 6
+     * datasetSize = 1032
+     *
+     * Un individuo posible:
+     * [25, 131, 94, 212, 135, 445]
+     *
+     * Cada valor debe estar entre 0 y datasetSize - 1.
+     *
+     * Resultado:
+     * population.Count = 50
+     * population[i].genes.Length = 6
+     *
+     * PSEUDOCÓDIGO
+     * ------------------------------------------------------------
+     * 1: create empty population
+     * 2: repeat populationSize times:
+     * 3:      create candidate with teamSize genes
+     * 4:      for each gene:
+     * 5:          assign random dataset index
+     * 6:      add candidate to population
+     * 7: return population
+     */
     private List<PokemonTeamCandidate> CreateInitialPopulation(
         int datasetSize,
         PokemonTeamGenerationConfig config,
@@ -174,6 +251,28 @@ public class GeneticAlgorithm : MonoBehaviour
         return population;
     }
 
+    /*
+     * ============================================================
+     * TOURNAMENT SELECTION
+     * ============================================================
+     *
+     * tournamentSize = 3
+     *
+     * candidate A -> fitness 0.62
+     * candidate B -> fitness 0.91
+     * candidate C -> fitness 0.78
+     *
+     * ganador -> candidate B
+     *
+     * PSEUDOCÓDIGO
+     * ------------------------------------------------------------
+     * 1: best = null
+     * 2: repeat tournamentSize times:
+     * 3:      choose random candidate from population
+     * 4:      if best is null OR candidate fitness > best fitness:
+     * 5:          best = candidate
+     * 6: return best
+     */
     private PokemonTeamCandidate TournamentSelection(
         List<PokemonTeamCandidate> population,
         System.Random random)
@@ -192,14 +291,39 @@ public class GeneticAlgorithm : MonoBehaviour
         return best;
     }
 
+    /*
+     * ============================================================
+     * CROSSOVER
+     * ============================================================
+     *
+     * parentA:
+     * [25, 131, 94 | 212, 135, 445]
+     *
+     * parentB:
+     * [6, 150, 197 | 376, 59, 248]
+     *
+     * crossoverPoint = 3
+     *
+     * child:
+     * [25, 131, 94 | 376, 59, 248]
+     *
+     * PSEUDOCÓDIGO
+     * ------------------------------------------------------------
+     * 1: create empty child
+     * 2: choose crossoverPoint between 1 and geneCount - 1
+     * 3: for each gene position:
+     * 4:      if position < crossoverPoint:
+     * 5:          copy gene from parentA
+     * 6:      else:
+     * 7:          copy gene from parentB
+     * 8: return child
+     */
     private PokemonTeamCandidate Crossover(
         PokemonTeamCandidate parentA,
         PokemonTeamCandidate parentB,
         System.Random random)
     {
         PokemonTeamCandidate child = new PokemonTeamCandidate(parentA.genes.Length);
-
-        // crossoverPoint between 1 and geneCount - 1
         int crossoverPoint = random.Next(1, parentA.genes.Length);
 
         for (int i = 0; i < parentA.genes.Length; i++)
@@ -213,6 +337,26 @@ public class GeneticAlgorithm : MonoBehaviour
         return child;
     }
 
+    /*
+     * ============================================================
+     * MUTACIÓN
+     * ============================================================
+     *
+     * mutationRate = 0.12
+     *
+     * Antes:
+     * [25, 131, 94, 212, 135, 445]
+     *
+     * Si muta la posición 3:
+     * [25, 131, 94, 700, 135, 445]
+     *
+     * PSEUDOCÓDIGO
+     * ------------------------------------------------------------
+     * 1: for each gene:
+     * 2:      generate random value between 0 and 1
+     * 3:      if random value < mutationRate:
+     * 4:          replace gene with random dataset index
+     */
     private void Mutate(
         PokemonTeamCandidate candidate,
         int datasetSize,
