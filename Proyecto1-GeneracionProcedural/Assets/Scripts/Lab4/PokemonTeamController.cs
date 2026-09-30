@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 public enum TeamGenerationMethod
 {
@@ -36,6 +37,7 @@ public class PokemonTeamGenerationConfig
     [Range(0f, 1f)] public float outputFitnessThreshold = 0.90f;
     [Min(1)] public int fallbackTopCandidates = 5;
 }
+
 
 [Serializable]
 public class PokemonTeamCandidate
@@ -288,10 +290,22 @@ public static class PokemonTeamFitness
 public class PokemonTeamSlotUI
 {
     public TMP_Text nameText;
-    public TMP_Text typesText;
     public TMP_Text statsText;
-}
 
+    [Header("Type 1")]
+    public TMP_Text type1Text;
+    public Image type1Image;
+
+    [Header("Type 2 (Opcional)")]
+    public TMP_Text type2Text;
+    public Image type2Image;
+}
+[Serializable]
+public struct TypeSpriteMapping
+{
+    public string typeName;
+    public Sprite typeSprite;
+}
 public class PokemonTeamController : MonoBehaviour
 {
     [Header("Data")]
@@ -314,6 +328,29 @@ public class PokemonTeamController : MonoBehaviour
 
     [Header("Summary UI")]
     [SerializeField] private TMP_Text summaryText;
+
+    [Header("Type Images")]
+    [SerializeField]
+    private List<TypeSpriteMapping> typeSprites = new List<TypeSpriteMapping>();
+
+    // Opcional: Un sprite por defecto por si el tipo no está en la lista
+    [SerializeField]
+    private Sprite defaultSprite;
+
+    // Helper para buscar el sprite correcto
+    private Sprite GetSpriteForType(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName)) return defaultSprite;
+
+        foreach (var mapping in typeSprites)
+        {
+            if (string.Equals(mapping.typeName, typeName, StringComparison.OrdinalIgnoreCase))
+            {
+                return mapping.typeSprite;
+            }
+        }
+        return defaultSprite;
+    }
 
     public void GenerateTeam()
     {
@@ -379,13 +416,42 @@ public class PokemonTeamController : MonoBehaviour
             if (slot.nameText != null)
                 slot.nameText.text = pokemon.name;
 
-            if (slot.typesText != null)
+            // --- MANEJO DEL TIPO 1 ---
+            if (slot.type1Text != null)
             {
-                slot.typesText.text = string.IsNullOrWhiteSpace(pokemon.type2)
-                    ? pokemon.type1
-                    : $"{pokemon.type1} / {pokemon.type2}";
+                slot.type1Text.text = pokemon.type1;
+                slot.type1Text.gameObject.SetActive(true);
             }
 
+            if (slot.type1Image != null)
+            {
+                slot.type1Image.sprite = GetSpriteForType(pokemon.type1);
+                slot.type1Image.gameObject.SetActive(true);
+            }
+
+            // --- MANEJO DEL TIPO 2 ---
+            bool hasType2 = !string.IsNullOrWhiteSpace(pokemon.type2);
+
+            if (slot.type2Text != null)
+            {
+                slot.type2Text.text = hasType2 ? pokemon.type2 : "";
+                slot.type2Text.gameObject.SetActive(hasType2); // Se oculta si no tiene tipo 2
+            }
+
+            if (slot.type2Image != null)
+            {
+                if (hasType2)
+                {
+                    slot.type2Image.sprite = GetSpriteForType(pokemon.type2);
+                    slot.type2Image.gameObject.SetActive(true);
+                }
+                else
+                {
+                    slot.type2Image.gameObject.SetActive(false); // Se oculta la imagen si no tiene tipo 2
+                }
+            }
+
+            // --- MANEJO DE ESTADÍSTICAS ---
             if (slot.statsText != null)
             {
                 PokemonRole role = PokemonTeamFitness.GetRole(pokemon);
