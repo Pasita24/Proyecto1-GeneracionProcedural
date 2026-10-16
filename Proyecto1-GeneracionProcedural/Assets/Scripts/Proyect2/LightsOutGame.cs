@@ -2,6 +2,8 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
+// Jose Hernandez y Benjamin Paz
+
 public class LightsOutBoard : MonoBehaviour
 {
     [Header("Configuracion del Tablero")]
@@ -15,11 +17,11 @@ public class LightsOutBoard : MonoBehaviour
     public float animationDelay = 0.1f;
 
     [Header("Interfaz Visual (UI)")]
-    public GridLayoutGroup gridLayout;
-    public GameObject cellPrefab;
-    public Button generateButton;
-    public Color lightOnColor = Color.yellow;
-    public Color lightOffColor = Color.gray;
+    public GridLayoutGroup gridLayout; //Se necesita un Grid Layout Grup en un panel de canvas
+    public GameObject cellPrefab; // Necesita un boton para poder usarlo de celda, no necesita configurarse el boton
+    public Button generateButton; // Boton que genera el tablero
+    public Color lightOnColor = Color.yellow; // Color de luz prendida
+    public Color lightOffColor = Color.gray; // Color de luz apagada
 
     private bool[] board;
     private Image[] cellImages;
