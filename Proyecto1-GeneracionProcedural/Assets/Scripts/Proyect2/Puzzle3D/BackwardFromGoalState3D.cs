@@ -7,9 +7,15 @@ using UnityEngine;
 /// </summary>
 public class BackwardFromGoalState3D : MonoBehaviour
 {
+    // Limites reales (los sliders por codigo no respetan [Range], por eso se aplican en los setters)
+    public const int MinNodes = 5;
+    public const int MaxNodes = 60;
+    public const int MinDifficulty = 2;
+    public const int MaxDifficulty = 30;
+
     [Header("Parametros Backward From Goal State 3D")]
-    [Range(5, 60)] public int nodeCount = 16;
-    [Range(2, 30)] public int difficultySteps = 7;
+    [Range(MinNodes, MaxNodes)] public int nodeCount = 16;
+    [Range(MinDifficulty, MaxDifficulty)] public int difficultySteps = 7;
 
     [Header("Forma 3D")]
     [Tooltip("Probabilidad de que la red crezca en el eje Z (0 = plano 2D, 1 = muy profunda)")]
@@ -48,6 +54,9 @@ public class BackwardFromGoalState3D : MonoBehaviour
     // Random Walk 3D: genera coordenadas de nodos y la lista de vecinos
     public void GenerateTopology(out List<Vector3Int> nodeCoords, out List<int>[] neighbors)
     {
+        // Valor seguro aunque algo externo haya dejado nodeCount fuera de rango
+        int targetCount = Mathf.Clamp(nodeCount, MinNodes, MaxNodes);
+
         nodeCoords = new List<Vector3Int>();
         Dictionary<Vector3Int, int> coordToIndex = new Dictionary<Vector3Int, int>();
         System.Random rand = CreateRng(0);
@@ -57,7 +66,7 @@ public class BackwardFromGoalState3D : MonoBehaviour
         coordToIndex[Vector3Int.zero] = 0;
 
         // Expansion aleatoria: elige un nodo existente y crece hacia una direccion libre
-        while (nodeCoords.Count < nodeCount)
+        while (nodeCoords.Count < targetCount)
         {
             int baseIndex = rand.Next(nodeCoords.Count);
 
@@ -75,9 +84,11 @@ public class BackwardFromGoalState3D : MonoBehaviour
             }
         }
 
-        // Conectar nodos adyacentes (distancia 1 en algun eje)
-        neighbors = new List<int>[nodeCount];
-        for (int i = 0; i < nodeCount; i++)
+        // Conectar nodos adyacentes (distancia 1 en algun eje).
+        // El tamano sale de nodeCoords.Count para que SIEMPRE coincida con los nodos creados.
+        int total = nodeCoords.Count;
+        neighbors = new List<int>[total];
+        for (int i = 0; i < total; i++)
         {
             neighbors[i] = new List<int>();
             foreach (Vector3Int dir in allDirs)
@@ -93,6 +104,7 @@ public class BackwardFromGoalState3D : MonoBehaviour
     {
         List<int> steps = new List<int>();
         System.Random rand = CreateRng(1);
+        int stepsToApply = Mathf.Clamp(difficultySteps, MinDifficulty, MaxDifficulty);
 
         if (avoidRepeatedClicks)
         {
@@ -105,19 +117,29 @@ public class BackwardFromGoalState3D : MonoBehaviour
                 int tmp = indices[i]; indices[i] = indices[j]; indices[j] = tmp;
             }
 
-            int amount = Mathf.Min(difficultySteps, totalNodes);
+            int amount = Mathf.Min(stepsToApply, totalNodes);
             for (int i = 0; i < amount; i++) steps.Add(indices[i]);
         }
         else
         {
-            for (int i = 0; i < difficultySteps; i++) steps.Add(rand.Next(totalNodes));
+            for (int i = 0; i < stepsToApply; i++) steps.Add(rand.Next(totalNodes));
         }
 
         return steps;
     }
 
-    // Metodos para conectar a Sliders de la UI
-    public void SetNodeCount(float val) => nodeCount = Mathf.RoundToInt(val);
-    public void SetDifficultySteps(float val) => difficultySteps = Mathf.RoundToInt(val);
-    public void SetDepthExpansion(float val) => depthExpansion = val;
+    // Metodos para conectar a Sliders de la UI (aplican los limites reales)
+    public void SetNodeCount(float val) => nodeCount = Mathf.Clamp(Mathf.RoundToInt(val), MinNodes, MaxNodes);
+    public void SetDifficultySteps(float val) => difficultySteps = Mathf.Clamp(Mathf.RoundToInt(val), MinDifficulty, MaxDifficulty);
+    public void SetDepthExpansion(float val) => depthExpansion = Mathf.Clamp01(val);
+
+    // Para Toggles
+    public void SetUseFixedSeed(bool val) => useFixedSeed = val;
+    public void SetAvoidRepeatedClicks(bool val) => avoidRepeatedClicks = val;
+
+    // Para un InputField (TMP) donde escribir la semilla
+    public void SetSeed(string val)
+    {
+        if (int.TryParse(val, out int parsed)) seed = parsed;
+    }
 }

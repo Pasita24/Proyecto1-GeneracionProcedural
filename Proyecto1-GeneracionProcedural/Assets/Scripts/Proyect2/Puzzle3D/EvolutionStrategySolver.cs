@@ -11,7 +11,7 @@ public class ESResult
     public bool found;          // Se encontro al menos una solucion valida
     public bool[] clicks;       // Mejor vector de clics encontrado (null si no hubo solucion)
     public int steps;           // Cantidad de clics de la mejor solucion
-    public int knownSteps;      // Clics de la solucion que genero el backward (referencia)
+    public int knownSteps;      // Clics de la solucion de referencia (semilla), -1 si no habia
     public int generations;     // Generaciones ejecutadas
     public int evaluations;     // Evaluaciones de costo realizadas
     public float seconds;       // Tiempo real que tomo
@@ -21,7 +21,8 @@ public class ESResult
 /// Evolution Strategy (mu + lambda) con Simulated Annealing interno.
 /// - ES: exploracion global con poblacion y mutacion auto-adaptativa (sigma).
 /// - SA: refinamiento local de cada hijo; su "memoria" es el mejor estado visto en el enfriamiento.
-/// Objetivo: encontrar el vector de clics VALIDO con la menor cantidad de clics.
+/// Objetivo: encontrar el vector de clics VALIDO con la menor cantidad de clics
+/// a partir del tablero que se le entregue (el inicial o el estado actual del jugador).
 /// </summary>
 public class EvolutionStrategySolver : MonoBehaviour
 {
@@ -40,7 +41,7 @@ public class EvolutionStrategySolver : MonoBehaviour
     [Range(0f, 1f)] public float crossoverChance = 0.25f;
     [Tooltip("Densidad de clics de los individuos aleatorios iniciales")]
     [Range(0.05f, 0.8f)] public float initialDensity = 0.25f;
-    [Tooltip("Incluye la solucion del generador como individuo inicial (garantiza una solucion valida)")]
+    [Tooltip("Incluye la solucion de referencia como individuo inicial (garantiza una solucion valida)")]
     public bool seedWithKnownSolution = true;
 
     [Header("Simulated Annealing interno")]
@@ -53,15 +54,17 @@ public class EvolutionStrategySolver : MonoBehaviour
     [Tooltip("Penalizacion por cada nodo infectado (costo = infectados * peso + clics)")]
     public float infectionWeight = 6f;
 
-    [Header("Animacion")]
-    [Tooltip("Pausa entre generaciones para que la UI pueda mostrar el progreso")]
+    [Header("Ejecucion")]
+    [Tooltip("Modo lento (visible): pausa entre generaciones para mostrar el progreso")]
     public float generationDelay = 0.02f;
+    [Tooltip("Modo rapido (segundo plano): milisegundos de calculo por frame antes de ceder el control")]
+    [Range(1f, 30f)] public float frameBudgetMs = 8f;
 
     // Individuo de la poblacion
     private class Individual
     {
         public bool[] clicks;   // Decision de clic por nodo
-        public bool[] board;    // Tablero resultante de aplicar esos clics al estado inicial
+        public bool[] board;    // Tablero resultante de aplicar esos clics al tablero de partida
         public float sigma;     // Parametro de mutacion propio (auto-adaptativo)
         public int infected;
         public int clickCount;
@@ -70,17 +73,23 @@ public class EvolutionStrategySolver : MonoBehaviour
 
     private int evaluations;
 
-    // Ejecuta la busqueda. onProgress(generacion, mejorPasosValido (-1 si no hay), infectadosDelMejor)
+    // Ejecuta la busqueda desde "startBoard".
+    // knownSolution: solucion valida para ESE tablero (se usa como semilla).
+    // fast = true: no hace pausas fijas, solo cede el frame al agotar frameBudgetMs.
+    // fast = false: pausa generationDelay entre generaciones para que la UI muestre el progreso.
+    // onProgress(generacion, mejorPasosValido (-1 si no hay), infectadosDelMejor)
     public IEnumerator SolveRoutine(
-        bool[] initialBoard,
+        bool[] startBoard,
         List<int>[] neighbors,
         bool[] knownSolution,
+        bool fast,
         Action<int, int, int> onProgress,
         Action<ESResult> onComplete)
     {
         float startTime = Time.realtimeSinceStartup;
+        System.Diagnostics.Stopwatch frameTimer = System.Diagnostics.Stopwatch.StartNew();
         evaluations = 0;
-        int n = initialBoard.Length;
+        int n = startBoard.Length;
         System.Random rand = new System.Random();
 
         // ---------- Poblacion inicial ----------
@@ -89,7 +98,7 @@ public class EvolutionStrategySolver : MonoBehaviour
         if (seedWithKnownSolution && knownSolution != null)
         {
             Individual seeded = new Individual { clicks = (bool[])knownSolution.Clone(), sigma = initialSigma };
-            Evaluate(seeded, initialBoard, neighbors);
+            Evaluate(seeded, startBoard, neighbors);
             population.Add(seeded);
         }
 
@@ -97,7 +106,7 @@ public class EvolutionStrategySolver : MonoBehaviour
         {
             Individual random = new Individual { clicks = new bool[n], sigma = initialSigma };
             for (int i = 0; i < n; i++) random.clicks[i] = rand.NextDouble() < initialDensity;
-            Evaluate(random, initialBoard, neighbors);
+            Evaluate(random, startBoard, neighbors);
             population.Add(random);
         }
 
@@ -123,7 +132,7 @@ public class EvolutionStrategySolver : MonoBehaviour
 
             for (int o = 0; o < offspringCount; o++)
             {
-                Individual child = CreateChild(population, initialBoard, neighbors, rand);
+                Individual child = CreateChild(population, startBoard, neighbors, rand);
                 child = RefineWithSA(child, neighbors, rand);   // SA como refinamiento
                 pool.Add(child);
             }
@@ -155,7 +164,16 @@ public class EvolutionStrategySolver : MonoBehaviour
             if (bestValid != null && bestValid.clickCount <= 1) break;
             if (stagnation >= stagnationLimit) break;
 
-            if (generationDelay > 0f) yield return new WaitForSeconds(generationDelay);
+            // Ceder el control
+            if (fast)
+            {
+                if (frameTimer.ElapsedMilliseconds >= frameBudgetMs)
+                {
+                    yield return null;
+                    frameTimer.Restart();
+                }
+            }
+            else if (generationDelay > 0f) yield return new WaitForSeconds(generationDelay);
             else yield return null;
         }
 
@@ -176,9 +194,9 @@ public class EvolutionStrategySolver : MonoBehaviour
     // ---------- Operadores evolutivos ----------
 
     // Crea un hijo: (cruce opcional) + mutacion con sigma auto-adaptativo
-    private Individual CreateChild(List<Individual> parents, bool[] initialBoard, List<int>[] neighbors, System.Random rand)
+    private Individual CreateChild(List<Individual> parents, bool[] startBoard, List<int>[] neighbors, System.Random rand)
     {
-        int n = initialBoard.Length;
+        int n = startBoard.Length;
         Individual pa = parents[rand.Next(parents.Count)];
         Individual child = Clone(pa);
 
@@ -202,7 +220,7 @@ public class EvolutionStrategySolver : MonoBehaviour
             child.clicks[node] = !child.clicks[node];
         }
 
-        Evaluate(child, initialBoard, neighbors);
+        Evaluate(child, startBoard, neighbors);
         return child;
     }
 
@@ -252,22 +270,21 @@ public class EvolutionStrategySolver : MonoBehaviour
     // ---------- Utilidades ----------
 
     // Calcula tablero, infectados, clics y costo desde cero
-    private void Evaluate(Individual ind, bool[] initialBoard, List<int>[] neighbors)
+    private void Evaluate(Individual ind, bool[] startBoard, List<int>[] neighbors)
     {
-        ind.board = LightsOutLogic3D.SimulateClicks(initialBoard, ind.clicks, neighbors);
+        ind.board = LightsOutLogic3D.SimulateClicks(startBoard, ind.clicks, neighbors);
         ind.infected = LightsOutLogic3D.CountTrue(ind.board);
         ind.clickCount = LightsOutLogic3D.CountTrue(ind.clicks);
         ind.cost = infectionWeight * ind.infected + ind.clickCount;
         evaluations++;
     }
 
-    // Cambia la decision de clic de un nodo actualizando el tablero de forma incremental
+    // Cambia la decision de clic de un nodo actualizando tablero e infectados de forma incremental
     private void FlipClick(Individual ind, int node, List<int>[] neighbors)
     {
         ind.clicks[node] = !ind.clicks[node];
-        LightsOutLogic3D.ToggleNode(ind.board, node, neighbors);
+        ind.infected += LightsOutLogic3D.ToggleNodeCounting(ind.board, node, neighbors);
         ind.clickCount += ind.clicks[node] ? 1 : -1;
-        ind.infected = LightsOutLogic3D.CountTrue(ind.board);
         ind.cost = infectionWeight * ind.infected + ind.clickCount;
         evaluations++;
     }
@@ -318,4 +335,9 @@ public class EvolutionStrategySolver : MonoBehaviour
     public void SetSAInitialTemp(float val) => saInitialTemperature = val;
     public void SetSACoolingRate(float val) => saCoolingRate = val;
     public void SetSANeighborsPerStep(float val) => saNeighborsPerStep = Mathf.RoundToInt(val);
+    public void SetStagnationLimit(float val) => stagnationLimit = Mathf.RoundToInt(val);
+    public void SetInfectionWeight(float val) => infectionWeight = val;
+    public void SetInitialSigma(float val) => initialSigma = val;
+    public void SetCrossoverChance(float val) => crossoverChance = val;
+    public void SetSeedWithKnownSolution(bool val) => seedWithKnownSolution = val;
 }

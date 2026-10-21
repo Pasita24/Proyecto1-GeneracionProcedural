@@ -19,6 +19,26 @@ public static class LightsOutLogic3D
         }
     }
 
+    // Igual que ToggleNode, pero devuelve cuanto cambio la cantidad de nodos "true"
+    // (+1 por cada nodo que se prende, -1 por cada uno que se apaga).
+    // Sirve para mantener el conteo de infectados sin recorrer todo el tablero.
+    public static int ToggleNodeCounting(bool[] board, int index, List<int>[] neighbors)
+    {
+        int delta = FlipAndCount(board, index);
+
+        List<int> list = neighbors[index];
+        for (int i = 0; i < list.Count; i++)
+            delta += FlipAndCount(board, list[i]);
+
+        return delta;
+    }
+
+    private static int FlipAndCount(bool[] board, int i)
+    {
+        board[i] = !board[i];
+        return board[i] ? 1 : -1;
+    }
+
     // Cuenta cuantos valores "true" hay (sirve para infectados y para clics)
     public static int CountTrue(bool[] array)
     {
