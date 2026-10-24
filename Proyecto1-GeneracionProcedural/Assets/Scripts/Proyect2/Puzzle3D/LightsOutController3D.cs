@@ -7,9 +7,11 @@ using TMPro;
 /// <summary>
 /// Manager del puzzle 3D estatico: genera la instancia (Backward from Goal State 3D), construye los nodos
 /// en el espacio y resuelve con Evolution Strategy + SA desde el ESTADO ACTUAL del tablero.
-/// - Al generar un puzzle calcula y muestra en cuantos pasos se puede resolver.
+/// - Todos los elementos visuales (nodos, tubos, pistas, previsualizacion) son PREFABS asignados en el inspector.
+/// - Al generar un puzzle calcula en cuantos pasos se puede resolver.
 /// - Cada clic del jugador actualiza las pistas al instante y relanza el calculo en segundo plano.
-/// - Los botones de pistas / ver solucion solo aparecen despues de pulsar "Resolver".
+/// - Pistas: modo desarrollador (Resolver + ON/OFF) y modo juego (pista de un nodo / plan completo).
+/// - Previsualizacion al pasar el mouse: resalta el nodo y sus vecinos.
 /// La camara orbita alrededor del puzzle con clic derecho.
 /// </summary>
 public class LightsOutController3D : MonoBehaviour
@@ -18,21 +20,37 @@ public class LightsOutController3D : MonoBehaviour
     public BackwardFromGoalState3D backwardGenerator;
     public EvolutionStrategySolver evolutionSolver;
 
-    [Header("Prefabs Opcionales")]
+    [Header("Prefabs (OBLIGATORIOS, arrastrar desde el Project)")]
+    [Tooltip("Nodo limpio")]
     public GameObject spherePrefab;
+    [Tooltip("Nodo infectado")]
     public GameObject cubePrefab;
+    [Tooltip("Conexion entre nodos (su eje largo debe ser Y, como el cilindro de Unity)")]
     public GameObject tubePrefab;
+    [Tooltip("Marcador de pista (aparece sobre los nodos que hay que pulsar)")]
+    public GameObject hintPrefab;
+    [Tooltip("Marcador de previsualizacion (aparece bajo el nodo en que esta el mouse y sus vecinos)")]
+    public GameObject previewPrefab;
+
+    [Header("Ajustes de prefabs")]
+    [Tooltip("Posicion del marcador de pista respecto al nodo")]
+    public Vector3 hintOffset = new Vector3(0f, 0.85f, 0f);
+    [Tooltip("Posicion del marcador de previsualizacion respecto al nodo")]
+    public Vector3 previewOffset = new Vector3(0f, -0.85f, 0f);
+    [Tooltip("Grosor del tubo (escala X y Z)")]
+    public float tubeThickness = 0.18f;
+    [Tooltip("Largo del modelo del tubo en Y con escala 1 (el cilindro de Unity mide 2; si tu modelo mide 1, poner 1)")]
+    public float tubeModelLength = 2f;
 
     [Header("Configuracion Visual 3D")]
     public float nodeSpacing = 2.0f;
     public float animationDelay = 0.08f;
-    public Color cleanSphereColor = new Color(0.2f, 0.85f, 0.4f);   // Nodo limpio (false)
-    public Color virusCubeColor = new Color(0.95f, 0.2f, 0.25f);    // Nodo infectado (true)
-    public Color hintColor = new Color(1f, 0.9f, 0.15f);           // Marcador de pista
 
     [Header("Generacion")]
     [Tooltip("Si esta desactivado, el puzzle aparece directamente sin animar el Backward from Goal State")]
     public bool animateGeneration = false;
+    [Tooltip("Generar un puzzle al iniciar la escena (dejar apagado si se usa el GameManager)")]
+    public bool generateOnStart = false;
 
     [Header("Camara Orbital 3D")]
     [Tooltip("Ajusta la distancia de la camara al tamano del puzzle al generarlo")]
@@ -49,14 +67,26 @@ public class LightsOutController3D : MonoBehaviour
     public TMP_Text statsText;
     [Tooltip("Texto fijo: 'Se puede resolver en X pasos' y pasos desde el estado actual (opcional)")]
     public TMP_Text optimalText;
+    [Tooltip("Etiqueta fija (por ejemplo 'Pistas'): se muestra u oculta junto a los botones ON/OFF, su texto no se modifica")]
+    public TMP_Text resolveText;
 
-    [Header("Botones que dependen de Resolver")]
+    [Header("Botones que dependen de Resolver (modo desarrollador)")]
     [Tooltip("Boton 'Ver solucion' (solo visible despues de Resolver)")]
     public Button playSolutionButton;
     [Tooltip("Boton 'Pistas ON' (solo visible despues de Resolver)")]
     public Button hintsOnButton;
     [Tooltip("Boton 'Pistas OFF' (solo visible despues de Resolver)")]
     public Button hintsOffButton;
+
+    // ---------- Eventos y propiedades para el GameManager ----------
+    public event System.Action OnPuzzleReady;     // Puzzle generado y optimo ya calculado
+    public event System.Action OnPuzzleSolved;    // El jugador dejo el sistema limpio
+
+    public bool InputLocked { get; set; }          // Bloquea los clics sobre los nodos
+    public bool IsBusy => isBusy;
+    public int ClicksUsed => currentClicksUsed;
+    public int OptimalSteps => initialSteps;       // -1 si aun se esta calculando
+    public bool HasFullHints => solutionRevealed;  // Ya se muestra el plan completo
 
     // ---------- Estado del puzzle ----------
     private bool[] board;               // Estado actual (false = esfera limpia, true = cubo infectado)
@@ -73,17 +103,24 @@ public class LightsOutController3D : MonoBehaviour
     private bool[] initialPlan;
     private int initialSteps = -1;
 
-    private bool solutionRevealed = false;   // true despues de pulsar Resolver
+    private bool solutionRevealed = false;   // true despues de Resolver (dev) o del plan completo (juego)
     private bool showHints = true;
+    private bool[] revealedHints;            // Nodos del plan revelados por pistas individuales
     private bool isSolving = false;
     private Coroutine solveHandle;
 
     private List<Vector3Int> nodeCoords;
     private List<int>[] neighbors;
 
+    // Escala base de cada prefab (la del propio prefab), para restaurarla tras la previsualizacion
+    private Vector3 sphereBaseScale = Vector3.one;
+    private Vector3 cubeBaseScale = Vector3.one;
+
     private GameObject[] sphereVisuals;
     private GameObject[] cubeVisuals;
     private GameObject[] hintMarkers;
+    private GameObject[] previewMarkers;
+    private int hoveredNode = -1;
     private List<GameObject> spawnedObjects = new List<GameObject>();
 
     private bool isBusy = false;    // Bloquea clics mientras se genera o se anima la solucion
@@ -94,11 +131,32 @@ public class LightsOutController3D : MonoBehaviour
     private float orbitPitch;
     private float orbitDistance = 15f;
 
+#if UNITY_EDITOR
+    // Avisa en el editor si a un campo de prefab se le arrastro un objeto de la escena
+    private void OnValidate()
+    {
+        CheckIsPrefab(spherePrefab, "Sphere Prefab");
+        CheckIsPrefab(cubePrefab, "Cube Prefab");
+        CheckIsPrefab(tubePrefab, "Tube Prefab");
+        CheckIsPrefab(hintPrefab, "Hint Prefab");
+        CheckIsPrefab(previewPrefab, "Preview Prefab");
+    }
+
+    private void CheckIsPrefab(GameObject obj, string fieldName)
+    {
+        if (obj != null && !UnityEditor.PrefabUtility.IsPartOfPrefabAsset(obj))
+        {
+            Debug.LogWarning($"LightsOutController3D: '{fieldName}' debe ser un PREFAB de la carpeta Assets, " +
+                             "no un objeto de la escena.", this);
+        }
+    }
+#endif
+
     private void Start()
     {
         InitOrbitFromCamera();
         RefreshButtons();      // Ocultar botones hasta que se pulse Resolver
-        GenerateNewPuzzle();
+        if (generateOnStart) GenerateNewPuzzle();
     }
 
     // Entrada del usuario: clic derecho orbita, rueda hace zoom
@@ -156,6 +214,7 @@ public class LightsOutController3D : MonoBehaviour
     public void GenerateNewPuzzle()
     {
         if (isBusy || backwardGenerator == null) return;
+        if (!PrefabsAssigned()) return;
         StartCoroutine(GeneratePuzzleRoutine());
     }
 
@@ -237,11 +296,128 @@ public class LightsOutController3D : MonoBehaviour
         orbitPitch = initialPitch;
     }
 
+    // ---------- Pistas del modo juego (las llama el GameManager) ----------
+
+    // Revela UN nodo del plan que aun no se haya revelado. Devuelve false si no habia ninguno.
+    public bool RevealOneHint()
+    {
+        if (isBusy || board == null || plan == null || revealedHints == null) return false;
+
+        List<int> candidates = new List<int>();
+        for (int i = 0; i < plan.Length; i++)
+            if (plan[i] && !revealedHints[i]) candidates.Add(i);
+
+        if (candidates.Count == 0) return false;
+
+        revealedHints[candidates[Random.Range(0, candidates.Count)]] = true;
+        showHints = true;
+        RefreshHints();
+        return true;
+    }
+
+    // Revela todos los nodos pendientes del plan. Devuelve false si ya estaban visibles o no hay nada que resolver.
+    public bool RevealFullPlan()
+    {
+        if (isBusy || board == null || plan == null || solutionRevealed) return false;
+        if (LightsOutLogic3D.CountTrue(board) == 0) return false;
+
+        solutionRevealed = true;
+        showHints = true;
+        RefreshButtons();
+        RefreshHints();
+        RefreshInfoText();
+        return true;
+    }
+
+    // ---------- Previsualizacion al pasar el mouse ----------
+
+    public void SetHoveredNode(int index)
+    {
+        if (board == null || neighbors == null || isBusy || InputLocked) return;
+        if (index < 0 || index >= neighbors.Length) return;
+
+        ClearPreview();
+        hoveredNode = index;
+        ApplyPreview(index, true);
+    }
+
+    // Solo limpia si el nodo que se deja es el que estaba resaltado
+    public void ClearHoveredNode(int index)
+    {
+        if (hoveredNode != index) return;
+        ClearPreview();
+    }
+
+    private void ClearPreview()
+    {
+        if (hoveredNode >= 0 && neighbors != null && hoveredNode < neighbors.Length && sphereVisuals != null)
+            ApplyPreview(hoveredNode, false);
+        hoveredNode = -1;
+    }
+
+    // Resalta (o restaura) el nodo y sus vecinos: son los que cambian al hacer clic
+    private void ApplyPreview(int node, bool on)
+    {
+        SetNodePreview(node, on, true);
+
+        List<int> list = neighbors[node];
+        for (int i = 0; i < list.Count; i++)
+            SetNodePreview(list[i], on, false);
+    }
+
+    private void SetNodePreview(int i, bool on, bool isCenter)
+    {
+        float mult = on ? (isCenter ? 1.3f : 1.18f) : 1f;
+
+        if (sphereVisuals != null && sphereVisuals[i] != null)
+            sphereVisuals[i].transform.localScale = sphereBaseScale * mult;
+        if (cubeVisuals != null && cubeVisuals[i] != null)
+            cubeVisuals[i].transform.localScale = cubeBaseScale * mult;
+        if (previewMarkers != null && previewMarkers[i] != null)
+            previewMarkers[i].SetActive(on);
+    }
+
+    // ---------- Limpiar el puzzle (volver al menu) ----------
+
+    public void ClearPuzzle()
+    {
+        StopAllCoroutines();
+        solveHandle = null;
+        isSolving = false;
+        isBusy = false;
+        hoveredNode = -1;
+
+        ClearVisuals();
+        sphereVisuals = null;
+        cubeVisuals = null;
+        hintMarkers = null;
+        previewMarkers = null;
+
+        board = null;
+        initialSavedBoard = null;
+        knownSolution = null;
+        playerClicks = null;
+        plan = null;
+        planSteps = 0;
+        initialPlan = null;
+        initialSteps = -1;
+        revealedHints = null;
+        solutionRevealed = false;
+        showHints = true;
+        currentClicksUsed = 0;
+
+        RefreshButtons();
+        RefreshInfoText();
+        UpdateUIText("");
+    }
+
     // ---------- Rutinas ----------
 
     private IEnumerator GeneratePuzzleRoutine()
     {
         isBusy = true;
+        InputLocked = false;
+        hoveredNode = -1;
         StopSolve();
         ClearVisuals();
 
@@ -259,6 +435,7 @@ public class LightsOutController3D : MonoBehaviour
         // 1. Topologia 3D de la red
         backwardGenerator.GenerateTopology(out nodeCoords, out neighbors);
         int totalNodes = nodeCoords.Count;
+        revealedHints = new bool[totalNodes];
 
         // 2. Objetos 3D en escena
         Build3DSceneObjects(totalNodes);
@@ -323,6 +500,7 @@ public class LightsOutController3D : MonoBehaviour
         );
 
         isBusy = false;
+        OnPuzzleReady?.Invoke();   // Avisa al GameManager
     }
 
     // Aplica un clic del backward y lo registra como parte de la solucion de referencia
@@ -473,7 +651,7 @@ public class LightsOutController3D : MonoBehaviour
 
     public void OnNodeClickedByPlayer(int nodeIndex)
     {
-        if (isBusy || board == null) return;
+        if (isBusy || InputLocked || board == null) return;
 
         ApplyClick(nodeIndex);
         UpdateVisuals3D();
@@ -490,6 +668,7 @@ public class LightsOutController3D : MonoBehaviour
             RefreshButtons();
             RefreshInfoText();
             UpdateUIText($"SISTEMA DESINFECTADO | Clics: {currentClicksUsed}");
+            OnPuzzleSolved?.Invoke();   // Avisa al GameManager
             return;
         }
 
@@ -518,13 +697,36 @@ public class LightsOutController3D : MonoBehaviour
         }
     }
 
-    // ---------- Construccion de la escena 3D ----------
+    // ---------- Construccion de la escena 3D (todo con prefabs) ----------
+
+    // Comprueba que los 5 prefabs esten asignados. Si falta alguno, no se genera el puzzle.
+    private bool PrefabsAssigned()
+    {
+        List<string> missing = new List<string>();
+        if (spherePrefab == null) missing.Add("Sphere Prefab");
+        if (cubePrefab == null) missing.Add("Cube Prefab");
+        if (tubePrefab == null) missing.Add("Tube Prefab");
+        if (hintPrefab == null) missing.Add("Hint Prefab");
+        if (previewPrefab == null) missing.Add("Preview Prefab");
+
+        if (missing.Count == 0) return true;
+
+        string message = "Faltan prefabs en LightsOutController3D: " + string.Join(", ", missing);
+        Debug.LogError(message, this);
+        UpdateUIText(message);
+        return false;
+    }
 
     private void Build3DSceneObjects(int totalNodes)
     {
         sphereVisuals = new GameObject[totalNodes];
         cubeVisuals = new GameObject[totalNodes];
         hintMarkers = new GameObject[totalNodes];
+        previewMarkers = new GameObject[totalNodes];
+
+        // La escala que tenga cada prefab es su tamano base
+        sphereBaseScale = spherePrefab.transform.localScale;
+        cubeBaseScale = cubePrefab.transform.localScale;
 
         // Centro del grafo para centrar la red en el origen del controller
         Vector3 center = Vector3.zero;
@@ -542,7 +744,7 @@ public class LightsOutController3D : MonoBehaviour
 
         for (int i = 0; i < totalNodes; i++)
         {
-            // Contenedor del nodo (con collider para detectar el clic)
+            // Contenedor del nodo (con el unico collider, para detectar el mouse)
             GameObject holder = new GameObject($"Node_{i}");
             holder.transform.SetParent(transform);
             holder.transform.localPosition = positions[i];
@@ -554,22 +756,14 @@ public class LightsOutController3D : MonoBehaviour
             detector.Setup(this, i);
             spawnedObjects.Add(holder);
 
-            // Esfera (nodo limpio)
-            sphereVisuals[i] = CreateVisual(spherePrefab, PrimitiveType.Sphere, cleanSphereColor, holder.transform, 0.9f);
+            sphereVisuals[i] = SpawnFromPrefab(spherePrefab, holder.transform, Vector3.zero);   // Nodo limpio
+            cubeVisuals[i] = SpawnFromPrefab(cubePrefab, holder.transform, Vector3.zero);       // Nodo infectado
 
-            // Cubo (nodo infectado)
-            cubeVisuals[i] = CreateVisual(cubePrefab, PrimitiveType.Cube, virusCubeColor, holder.transform, 0.85f);
+            hintMarkers[i] = SpawnFromPrefab(hintPrefab, holder.transform, hintOffset);         // Pista
+            hintMarkers[i].SetActive(false);
 
-            // Marcador de pista: esferita amarilla sobre el nodo
-            GameObject hint = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            Renderer hr = hint.GetComponent<Renderer>();
-            if (hr != null) hr.material.color = hintColor;
-            hint.transform.SetParent(holder.transform);
-            hint.transform.localPosition = new Vector3(0f, 0.85f, 0f);
-            hint.transform.localScale = Vector3.one * 0.3f;
-            if (hint.GetComponent<Collider>() != null) Destroy(hint.GetComponent<Collider>());
-            hint.SetActive(false);
-            hintMarkers[i] = hint;
+            previewMarkers[i] = SpawnFromPrefab(previewPrefab, holder.transform, previewOffset); // Previsualizacion
+            previewMarkers[i].SetActive(false);
 
             // Conexiones 3D (cada arista una sola vez)
             foreach (int nIndex in neighbors[i])
@@ -587,51 +781,39 @@ public class LightsOutController3D : MonoBehaviour
         }
     }
 
-    // Crea la parte visual (prefab o primitiva) como hija del nodo, sin collider propio
-    private GameObject CreateVisual(GameObject prefab, PrimitiveType fallback, Color color, Transform parent, float scale)
+    // Instancia un prefab como hijo del nodo, respetando su escala y sin colliders propios
+    private GameObject SpawnFromPrefab(GameObject prefab, Transform parent, Vector3 localPosition)
     {
-        GameObject obj;
-        if (prefab != null)
-        {
-            obj = Instantiate(prefab);
-        }
-        else
-        {
-            obj = GameObject.CreatePrimitive(fallback);
-            Renderer r = obj.GetComponent<Renderer>();
-            if (r != null) r.material.color = color;
-        }
-
-        obj.transform.SetParent(parent);
-        obj.transform.localPosition = Vector3.zero;
-        obj.transform.localScale = Vector3.one * scale;
-        if (obj.GetComponent<Collider>() != null) Destroy(obj.GetComponent<Collider>());
+        GameObject obj = Instantiate(prefab, parent);
+        obj.transform.localPosition = localPosition;
+        obj.transform.localRotation = Quaternion.identity;
+        DisableColliders(obj);
         return obj;
     }
 
-    // Tubo entre dos puntos 3D
+    // El unico collider de un nodo es el del contenedor; los de los prefabs se quitan
+    private void DisableColliders(GameObject obj)
+    {
+        foreach (Collider c in obj.GetComponentsInChildren<Collider>(true))
+        {
+            c.enabled = false;   // Deja de recibir raycasts de inmediato (Destroy se aplica al final del frame)
+            Destroy(c);
+        }
+    }
+
+    // Tubo entre dos puntos 3D (prefab estirado al largo de la conexion)
     private void CreateConnectionTube(Vector3 start, Vector3 end)
     {
-        GameObject tube;
-        if (tubePrefab != null)
-        {
-            tube = Instantiate(tubePrefab);
-        }
-        else
-        {
-            tube = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            Renderer r = tube.GetComponent<Renderer>();
-            if (r != null) r.material.color = new Color(0.35f, 0.35f, 0.4f);
-        }
-
-        tube.transform.SetParent(transform);
-        if (tube.GetComponent<Collider>() != null) Destroy(tube.GetComponent<Collider>());
+        GameObject tube = Instantiate(tubePrefab, transform);
+        DisableColliders(tube);
 
         Vector3 dir = end - start;
         tube.transform.localPosition = (start + end) * 0.5f;
         tube.transform.localRotation = Quaternion.FromToRotation(Vector3.up, dir.normalized);
-        // El cilindro de Unity mide 2 de alto, por eso la mitad de la distancia
-        tube.transform.localScale = new Vector3(0.18f, dir.magnitude * 0.5f, 0.18f);
+        tube.transform.localScale = new Vector3(
+            tubeThickness,
+            dir.magnitude / Mathf.Max(0.01f, tubeModelLength),
+            tubeThickness);
 
         spawnedObjects.Add(tube);
     }
@@ -656,19 +838,24 @@ public class LightsOutController3D : MonoBehaviour
         RefreshHints();
     }
 
-    // Pistas: los nodos del plan (clics que faltan desde el estado ACTUAL)
+    // Pistas: nodos del plan (clics que faltan desde el estado ACTUAL) que ya fueron revelados.
+    // Revelado = plan completo (Resolver / pista cara) o pista individual comprada.
     private void RefreshHints()
     {
         if (hintMarkers == null) return;
         for (int i = 0; i < hintMarkers.Length; i++)
         {
             if (hintMarkers[i] == null) continue;
-            bool pending = showHints && solutionRevealed && plan != null && i < plan.Length && plan[i];
-            hintMarkers[i].SetActive(pending);
+
+            bool planned = plan != null && i < plan.Length && plan[i];
+            bool revealed = solutionRevealed
+                            || (revealedHints != null && i < revealedHints.Length && revealedHints[i]);
+
+            hintMarkers[i].SetActive(showHints && planned && revealed);
         }
     }
 
-    // Muestra u oculta los botones segun el estado del puzzle
+    // Muestra u oculta los botones (y la etiqueta de pistas) segun el estado del puzzle
     private void RefreshButtons()
     {
         bool solved = board != null && LightsOutLogic3D.CountTrue(board) == 0;
@@ -688,6 +875,10 @@ public class LightsOutController3D : MonoBehaviour
             hintsOffButton.gameObject.SetActive(active);
             hintsOffButton.interactable = showHints;
         }
+
+        // Etiqueta "Pistas": aparece y desaparece junto con los botones ON/OFF, sin cambiar su texto
+        if (resolveText != null)
+            resolveText.gameObject.SetActive(active);
     }
 
     // Texto fijo: pasos del puzzle y, tras Resolver, pasos desde el estado actual
