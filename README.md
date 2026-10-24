@@ -3,7 +3,7 @@
 Proyecto de Unidad II (PCG) desarrollado en Unity.
 
 **Integrantes:** Benjamín Paz, Jose Hernandez
-**Versión ejecutable (itch.io):** [ENLACE A ITCH.IO]
+**Versión ejecutable (itch.io):** [https://pasita24.itch.io/proyecto2-pcg]
 
 ## Descripción
 
